@@ -232,6 +232,14 @@
         const shipDate = new Date(document.getElementById('shipDate').value);
         const isResidential = document.getElementById('isResidential').checked;
 
+        console.log('Starting calculation with:', {
+            originZip,
+            destinationZip,
+            serviceCode,
+            shipDate,
+            isResidential
+        });
+
         try {
             const result = await calculator.calculateTransitTime(
                 originZip,
@@ -241,10 +249,13 @@
                 isResidential
             );
 
+            console.log('Got result:', result);
+
             if (result) {
                 displayResult(result);
             }
         } catch (error) {
+            console.error('Calculation error:', error);
             displayError(error);
         }
     }

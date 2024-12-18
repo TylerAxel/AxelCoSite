@@ -5,104 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>UPS Transit Calculator</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-        }
-        input {
-            width: 100%;
-            padding: 8px;
-            margin-bottom: 10px;
-        }
-        button {
-            background-color: #351c15;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            cursor: pointer;
-        }
-        #result {
-            margin-top: 20px;
-            padding: 15px;
-            border: 1px solid #ddd;
-            display: none;
-        }
-    </style>
-</head>
-<body>
-    <script>
-        // UPS Service Class Definition
-        class UPSService {
-            static GROUND = { code: 'GND', name: 'UPS Ground' };
-            static THREE_DAY = { code: '3DS', name: 'UPS 3 Day Select' };
-            static TWO_DAY = { code: '2DA', name: 'UPS 2nd Day Air' };
-            static NEXT_DAY = { code: '1DA', name: 'UPS Next Day Air' };
-            static NEXT_DAY_EARLY = { code: '1DM', name: 'UPS Next Day Air Early' };
-            static NEXT_DAY_SAVER = { code: '1DP', name: 'UPS Next Day Air Saver' };
-
-            static getAllServices() {
-                return [
-                    this.GROUND,
-                    this.THREE_DAY,
-                    this.TWO_DAY,
-                    this.NEXT_DAY,
-                    this.NEXT_DAY_EARLY,
-                    this.NEXT_DAY_SAVER
-                ];
-            }
-        }
-    </script>
-
-    <!-- Calculator HTML -->
-    <div id="shipping-calculator" class="shipping-calculator">
-        <div class="shipping-form">
-            <div class="form-group">
-                <label for="originZip">From ZIP Code:</label>
-                <input type="text" id="originZip" value="18705" readonly>
-            </div>
-
-            <div class="form-group">
-                <label for="destinationZip">To ZIP Code:</label>
-                <input type="text" id="destinationZip" maxlength="5" pattern="\d*">
-            </div>
-
-            <div class="form-group">
-                <label for="service">Service Level:</label>
-                <select id="service">
-                    <!-- Options will be populated by JavaScript -->
-                </select>
-            </div>
-
-            <div class="form-group">
-                <label for="shipDate">Ship Date:</label>
-                <input type="date" id="shipDate">
-            </div>
-
-            <div class="form-group">
-                <label>
-                    <input type="checkbox" id="isResidential" checked>
-                    Residential Delivery
-                </label>
-            </div>
-
-            <button onclick="calculateShipping()">Calculate Transit Time</button>
-        </div>
-
-        <div id="result" class="shipping-result" style="display: none">
-            <!-- Results will be populated here -->
-        </div>
-    </div>
-
-    <style>
     .shipping-calculator {
         max-width: 600px;
         margin: 0 auto;
@@ -149,6 +51,160 @@
         border-radius: 4px;
     }
     </style>
+</head>
+<body>
+    <script>
+    // UPS Service Class Definition
+    class UPSService {
+        static GROUND = { code: 'GND', name: 'UPS Ground' };
+        static THREE_DAY = { code: '3DS', name: 'UPS 3 Day Select' };
+        static TWO_DAY = { code: '2DA', name: 'UPS 2nd Day Air' };
+        static NEXT_DAY = { code: '1DA', name: 'UPS Next Day Air' };
+        static NEXT_DAY_EARLY = { code: '1DM', name: 'UPS Next Day Air Early' };
+        static NEXT_DAY_SAVER = { code: '1DP', name: 'UPS Next Day Air Saver' };
+
+        static getAllServices() {
+            return [
+                this.GROUND,
+                this.THREE_DAY,
+                this.TWO_DAY,
+                this.NEXT_DAY,
+                this.NEXT_DAY_EARLY,
+                this.NEXT_DAY_SAVER
+            ];
+        }
+    }
+
+    // Shipping Calculator Class
+    class ShippingCalculator {
+        constructor() {
+            this.proxyURL = 'https://ups-calculator.onrender.com'; // We'll update this with your Render URL later
+            this.accessToken = null;
+            this.tokenExpirationDate = null;
+        }
+
+        async getAccessToken() {
+            if (this.accessToken && this.tokenExpirationDate > new Date()) {
+                return this.accessToken;
+            }
+
+            const response = await fetch(`${this.proxyURL}/api/ups/token`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const data = await response.json();
+            this.accessToken = data.access_token;
+            this.tokenExpirationDate = new Date(Date.now() + data.expires_in * 1000);
+            return this.accessToken;
+        }
+
+        async calculateTransitTime(originZip, destinationZip, service, shipDate, isResidential) {
+            try {
+                const token = await this.getAccessToken();
+                
+                const requestBody = {
+                    originCountryCode: 'US',
+                    originPostalCode: originZip,
+                    destinationCountryCode: 'US',
+                    destinationPostalCode: destinationZip,
+                    weight: '1.0',
+                    weightUnitOfMeasure: 'LBS',
+                    shipmentContentsValue: '1.0',
+                    shipmentContentsCurrencyCode: 'USD',
+                    billType: '03',
+                    shipDate: this.formatDate(shipDate),
+                    shipTime: '1000',
+                    residentialIndicator: isResidential ? '01' : '02',
+                    numberOfPackages: '1'
+                };
+
+                const response = await fetch(`${this.proxyURL}/api/ups/transit-time`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                        'transId': crypto.randomUUID()
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const data = await response.json();
+                return this.processResponse(data, service);
+            } catch (error) {
+                console.error('Error calculating transit time:', error);
+                throw error;
+            }
+        }
+
+        processResponse(data, selectedService) {
+            if (data.emsResponse) {
+                const matchingService = data.emsResponse.services.find(
+                    s => s.serviceLevel === selectedService.code
+                );
+
+                if (matchingService) {
+                    return {
+                        transitDays: matchingService.businessTransitDays,
+                        deliveryDate: matchingService.deliveryDate,
+                        deliveryTime: matchingService.deliveryTime,
+                        deliveryDayOfWeek: matchingService.deliveryDayOfWeek,
+                        serviceLevelDescription: matchingService.serviceLevelDescription,
+                        destinationCity: data.emsResponse.destinationCityName,
+                        destinationState: data.emsResponse.destinationStateProvince
+                    };
+                }
+            }
+            return null;
+        }
+
+        formatDate(date) {
+            return date.toISOString().split('T')[0];
+        }
+    }
+    </script>
+
+    <!-- Calculator HTML -->
+    <div id="shipping-calculator" class="shipping-calculator">
+        <div class="shipping-form">
+            <div class="form-group">
+                <label for="originZip">From ZIP Code:</label>
+                <input type="text" id="originZip" value="18705" readonly>
+            </div>
+
+            <div class="form-group">
+                <label for="destinationZip">To ZIP Code:</label>
+                <input type="text" id="destinationZip" maxlength="5" pattern="\d*">
+            </div>
+
+            <div class="form-group">
+                <label for="service">Service Level:</label>
+                <select id="service">
+                    <!-- Options will be populated by JavaScript -->
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="shipDate">Ship Date:</label>
+                <input type="date" id="shipDate">
+            </div>
+
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="isResidential" checked>
+                    Residential Delivery
+                </label>
+            </div>
+
+            <button onclick="calculateShipping()">Calculate Transit Time</button>
+        </div>
+
+        <div id="result" class="shipping-result" style="display: none">
+            <!-- Results will be populated here -->
+        </div>
+    </div>
 
     <script>
     // Initialize calculator
